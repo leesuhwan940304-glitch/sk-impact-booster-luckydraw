@@ -21,39 +21,45 @@ export async function POST(request: NextRequest) {
   }
 
   const phone = phoneRaw.replace(/\D/g, "");
-  const supabase = getServiceClient();
 
-  // 이미 등록된 번호면 재등록(새로고침 등) 처리 — 기존 참가자 그대로 사용
-  const { data: existing, error: findErr } = await supabase
-    .from("participants")
-    .select("id")
-    .eq("phone", phone)
-    .maybeSingle();
-  if (findErr) {
-    return NextResponse.json({ error: findErr.message }, { status: 500 });
-  }
+  try {
+    const supabase = getServiceClient();
 
-  let participantId = existing?.id as string | undefined;
-
-  if (!participantId) {
-    const { data: inserted, error: insertErr } = await supabase
+    // 이미 등록된 번호면 재등록(새로고침 등) 처리 — 기존 참가자 그대로 사용
+    const { data: existing, error: findErr } = await supabase
       .from("participants")
-      .insert({ name, phone, consent: true })
       .select("id")
-      .single();
-    if (insertErr) {
-      return NextResponse.json({ error: insertErr.message }, { status: 500 });
+      .eq("phone", phone)
+      .maybeSingle();
+    if (findErr) {
+      return NextResponse.json({ error: findErr.message }, { status: 500 });
     }
-    participantId = inserted.id as string;
-  }
 
-  const res = NextResponse.json({ id: participantId });
-  res.cookies.set(PID_COOKIE, participantId, {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    maxAge: 60 * 60 * 6, // 6시간 (행사 당일용)
-    path: "/",
-  });
-  return res;
+    let participantId = existing?.id as string | undefined;
+
+    if (!participantId) {
+      const { data: inserted, error: insertErr } = await supabase
+        .from("participants")
+        .insert({ name, phone, consent: true })
+        .select("id")
+        .single();
+      if (insertErr) {
+        return NextResponse.json({ error: insertErr.message }, { status: 500 });
+      }
+      participantId = inserted.id as string;
+    }
+
+    const res = NextResponse.json({ id: participantId });
+    res.cookies.set(PID_COOKIE, participantId, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: process.env.NODE_ENV === "production",
+      maxAge: 60 * 60 * 6, // 6시간 (행사 당일용)
+      path: "/",
+    });
+    return res;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "서버 설정 오류가 발생했습니다.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

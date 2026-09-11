@@ -8,6 +8,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "관리자 인증이 필요합니다." }, { status: 401 });
   }
 
+  try {
   const supabase = getServiceClient();
 
   const [{ count: participantCount }, { data: state }, { data: questions }, { data: responses }, { data: voteQuestion }, { data: votes }, { data: winners }] =
@@ -69,4 +70,8 @@ export async function GET(request: NextRequest) {
     voteCountByOption,
     winners: winnersOut,
   });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "서버 설정 오류가 발생했습니다.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }
