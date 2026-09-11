@@ -55,6 +55,7 @@ export default function ScreenPage() {
       <div className="flex-1 grid grid-cols-2 gap-10 items-center">
         <div className="flex flex-col items-center justify-center gap-4">
           {qrDataUrl && (
+            // eslint-disable-next-line @next/next/no-img-element -- 클라이언트에서 생성한 data URI라 next/image 최적화 대상이 아님
             <img src={qrDataUrl} alt="참여 QR코드" className="bg-white p-4 rounded-2xl w-[360px] h-[360px]" />
           )}
           <p className="text-xl font-semibold">QR 스캔하고 지금 참여하기</p>

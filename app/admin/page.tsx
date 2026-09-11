@@ -42,6 +42,7 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 최초 로드 + 폴링 시작 (표준 데이터 페칭 패턴)
     load();
     const id = setInterval(load, 4000);
     return () => clearInterval(id);
