@@ -3,6 +3,7 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  color-scheme: light;
 }
 
 @theme inline {
@@ -12,12 +13,8 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* 운영용 내부 도구라 시스템 다크모드와 무관하게 항상 라이트 테마로 고정
+   (개별 페이지에서 명시적으로 어두운 배경을 쓰는 /screen 등은 자체 색상 유지) */
 
 body {
   background: var(--background);
