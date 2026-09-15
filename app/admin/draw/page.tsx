@@ -185,11 +185,21 @@ async function publishToScreen(
   return (
     <Shell>
       <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold">🎉 럭키드로우 추첨 도구</h1>
-          <p className="text-[#5b5348] text-sm mt-1">
-            슬라이도 &quot;참가자별 취합(Pivot All)&quot; 내보내기 파일을 업로드해서 추첨을 진행해요.
-          </p>
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold">🎉 럭키드로우 추첨 도구</h1>
+            <p className="text-[#5b5348] text-sm mt-1">
+              슬라이도 &quot;참가자별 취합(Pivot All)&quot; 내보내기 파일을 업로드해서 추첨을 진행해요.
+            </p>
+          </div>
+          <a
+            href="/screen"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 text-sm border border-[#198038] text-[#198038] rounded-full px-4 py-2 font-medium hover:bg-[#198038] hover:text-white transition-colors whitespace-nowrap"
+          >
+            🖥️ 무대 스크린 열기
+          </a>
         </div>
 
         <Card>
