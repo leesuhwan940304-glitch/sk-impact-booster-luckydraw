@@ -10,7 +10,7 @@ import {
   drawQuizWinners,
   drawClosingWinners,
 } from "@/lib/slido-draw";
-import { maskSlidoName, maskEmail } from "@/lib/mask";
+import { maskEmail } from "@/lib/mask";
 
 type WinnerView = { maskedName: string; maskedEmail: string };
 type QuizBatch = { prizeName: string; winners: WinnerView[] };
@@ -100,7 +100,7 @@ export default function DrawToolPage() {
   }, [parsed, quizCols, voteCol, correctOption]);
 
   function toView(p: SlidoParticipant): WinnerView {
-    return { maskedName: maskSlidoName(p.name), maskedEmail: maskEmail(p.email) };
+    return { maskedName: p.name, maskedEmail: maskEmail(p.email) };
   }
 
 async function publishToScreen(
