@@ -13,32 +13,86 @@ import {
 import { maskEmail } from "@/lib/mask";
 
 type WinnerView = { maskedName: string; maskedEmail: string };
+type PublishEntry = {
+  round: string;
+  rank: number | null;
+  prizeName: string;
+  maskedName: string;
+  maskedEmail: string;
+  participantId: string;
+};
 type QuizBatch = { prizeName: string; winners: WinnerView[] };
-type ClosingResult = { rank: 3 | 2 | 1; prizeName: string; winners: WinnerView[] };
+type ClosingBatch = { rank: 3 | 2 | 1; prizeName: string; winners: WinnerView[] };
+
+const RANK_TARGET: Record<3 | 2 | 1, number> = { 3: 2, 2: 2, 1: 1 };
+const RANK_DEFAULT_PRIZE: Record<3 | 2 | 1, string> = {
+  3: "엔티 나물투데이 제철나물 정기구독권",
+  2: "스타스테크 라보페 불가사리 콜라겐 리커버리 세트",
+  1: "애플 에어팟 프로 3",
+};
+
+function toWinnerView(p: SlidoParticipant): WinnerView {
+  return { maskedName: p.name, maskedEmail: maskEmail(p.email) };
+}
+
+function toPublishEntries(
+  winners: SlidoParticipant[],
+  round: string,
+  rank: number | null,
+  prizeName: string
+): PublishEntry[] {
+  return winners.map((p) => ({
+    round,
+    rank,
+    prizeName,
+    maskedName: p.name,
+    maskedEmail: maskEmail(p.email),
+    participantId: p.id,
+  }));
+}
 
 export default function DrawToolPage() {
   const [authed, setAuthed] = useState<boolean | null>(null);
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState<string | null>(null);
 
-  const [parsed, setParsed] = useState<ParsedSlido | null>(null);
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [parseError, setParseError] = useState<string | null>(null);
-
-  const [quizCols, setQuizCols] = useState<Set<string>>(new Set());
-  const [voteCol, setVoteCol] = useState<string | null>(null);
-  const [correctOption, setCorrectOption] = useState<string | null>(null);
-
+  // 두 세션에 걸쳐 공유되는 "이미 당첨된 사람" 목록 (중복당첨 방지)
   const [wonIds, setWonIds] = useState<Set<string>>(new Set());
-  const [quizBatches, setQuizBatches] = useState<QuizBatch[]>([]);
-  const [closingResults, setClosingResults] = useState<ClosingResult[]>([]);
+
+  // 중간세션 (퀴즈) 상태
+  const [quizParsed, setQuizParsed] = useState<ParsedSlido | null>(null);
+  const [quizFileName, setQuizFileName] = useState<string | null>(null);
+  const [quizParseError, setQuizParseError] = useState<string | null>(null);
+  const [quizCols, setQuizCols] = useState<Set<string>>(new Set());
   const QUIZ_PRIZE_PRESETS = ["LABO+VARDE 여권 케이스", "출장/여행용 필터샤워기 세트"];
   const [quizPrize, setQuizPrize] = useState(QUIZ_PRIZE_PRESETS[0]);
   const [quizCount, setQuizCount] = useState(5);
+  const [quizBatches, setQuizBatches] = useState<QuizBatch[]>([]);
+
+  // 클로징세션 (투표) 상태 — 완전히 별도 업로드/설정
+  const [closingParsed, setClosingParsed] = useState<ParsedSlido | null>(null);
+  const [closingFileName, setClosingFileName] = useState<string | null>(null);
+  const [closingParseError, setClosingParseError] = useState<string | null>(null);
+  const [voteCol, setVoteCol] = useState<string | null>(null);
+  const [correctOption, setCorrectOption] = useState<string | null>(null);
+  const [closingBatches, setClosingBatches] = useState<ClosingBatch[]>([]);
+  const [revealOneByOne, setRevealOneByOne] = useState(true);
 
   useEffect(() => {
     fetch("/api/admin/ping").then((res) => setAuthed(res.ok));
   }, []);
+
+  useEffect(() => {
+    if (authed !== true) return;
+    // 새로고침/재접속 시에도 이전 당첨자를 다시 뽑지 않도록 서버 기록으로 복원
+    fetch("/api/admin/slido-winners")
+      .then((r) => r.json())
+      .then((d) => {
+        const ids: string[] = d.participantIds ?? [];
+        if (ids.length > 0) setWonIds((prev) => new Set([...prev, ...ids]));
+      })
+      .catch(() => {});
+  }, [authed]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -56,56 +110,52 @@ export default function DrawToolPage() {
     setAuthed(true);
   }
 
-  async function handleFile(file: File) {
-    setParseError(null);
-    try {
-      const buf = await file.arrayBuffer();
+  function parseFile(file: File): Promise<ParsedSlido> {
+    return file.arrayBuffer().then((buf) => {
       const wb = XLSX.read(buf, { type: "array" });
       const sheetName = wb.SheetNames.includes("Pivot All") ? "Pivot All" : wb.SheetNames[0];
       const ws = wb.Sheets[sheetName];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, defval: null }) as unknown[][];
-      const result = parseSlidoPivotRows(rows);
+      return parseSlidoPivotRows(rows);
+    });
+  }
+
+  async function handleQuizFile(file: File) {
+    setQuizParseError(null);
+    try {
+      const result = await parseFile(file);
       if (result.participants.length === 0) {
-        setParseError("참가자 데이터를 찾지 못했어요. '참가자별 취합(Pivot All)' 형식의 내보내기 파일이 맞는지 확인해주세요.");
+        setQuizParseError("참가자 데이터를 찾지 못했어요. '참가자별 취합(Pivot All)' 형식의 내보내기 파일이 맞는지 확인해주세요.");
         return;
       }
-      setParsed(result);
-      setFileName(file.name);
-      setQuizCols(new Set());
-      setVoteCol(null);
-      setCorrectOption(null);
-      setWonIds(new Set());
+      setQuizParsed(result);
+      setQuizFileName(file.name);
+      setQuizCols(new Set(result.questionColumns)); // 기본값: 전부 퀴즈 문항으로 체크
       setQuizBatches([]);
-      setClosingResults([]);
     } catch {
-      setParseError("파일을 읽는 중 오류가 발생했어요. 엑셀(.xlsx) 파일이 맞는지 확인해주세요.");
+      setQuizParseError("파일을 읽는 중 오류가 발생했어요. 엑셀(.xlsx) 파일이 맞는지 확인해주세요.");
     }
   }
 
-  const stats = useMemo(() => {
-    if (!parsed) return null;
-    const quizColsArr = Array.from(quizCols);
-    const quizRespondents = parsed.participants.filter((p) =>
-      quizColsArr.some((c) => !!p.answers[c])
-    ).length;
-    const totalTickets = parsed.participants.reduce(
-      (sum, p) => sum + quizColsArr.filter((c) => !!p.answers[c]).length,
-      0
-    );
-    const closingRespondents =
-      voteCol && correctOption
-        ? parsed.participants.filter((p) => p.answers[voteCol] === correctOption).length
-        : 0;
-    return { quizRespondents, totalTickets, closingRespondents };
-  }, [parsed, quizCols, voteCol, correctOption]);
-
-  function toView(p: SlidoParticipant): WinnerView {
-    return { maskedName: p.name, maskedEmail: maskEmail(p.email) };
+  async function handleClosingFile(file: File) {
+    setClosingParseError(null);
+    try {
+      const result = await parseFile(file);
+      if (result.participants.length === 0) {
+        setClosingParseError("참가자 데이터를 찾지 못했어요. '참가자별 취합(Pivot All)' 형식의 내보내기 파일이 맞는지 확인해주세요.");
+        return;
+      }
+      setClosingParsed(result);
+      setClosingFileName(file.name);
+      setVoteCol(null);
+      setCorrectOption(null);
+      setClosingBatches([]);
+    } catch {
+      setClosingParseError("파일을 읽는 중 오류가 발생했어요. 엑셀(.xlsx) 파일이 맞는지 확인해주세요.");
+    }
   }
 
-async function publishToScreen(
-    entries: { round: string; rank: number | null; prizeName: string; maskedName: string; maskedEmail: string }[]
-  ) {
+  async function publishToScreen(entries: PublishEntry[]) {
     try {
       await fetch("/api/admin/slido-winners", {
         method: "POST",
@@ -117,38 +167,62 @@ async function publishToScreen(
     }
   }
 
+  const quizStats = useMemo(() => {
+    if (!quizParsed) return null;
+    const cols = Array.from(quizCols);
+    const respondents = quizParsed.participants.filter((p) => cols.some((c) => !!p.answers[c])).length;
+    const totalTickets = quizParsed.participants.reduce(
+      (sum, p) => sum + cols.filter((c) => !!p.answers[c]).length,
+      0
+    );
+    return { respondents, totalTickets };
+  }, [quizParsed, quizCols]);
+
+  const closingStats = useMemo(() => {
+    if (!closingParsed || !voteCol || !correctOption) return null;
+    const respondents = closingParsed.participants.filter((p) => p.answers[voteCol] === correctOption).length;
+    return { respondents };
+  }, [closingParsed, voteCol, correctOption]);
+
   function runQuizDraw() {
-    if (!parsed) return;
-    const winners = drawQuizWinners(parsed.participants, Array.from(quizCols), wonIds, quizCount);
+    if (!quizParsed) return;
+    const winners = drawQuizWinners(quizParsed.participants, Array.from(quizCols), wonIds, quizCount);
     if (winners.length === 0) return;
     setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    const views = winners.map(toView);
-    setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: views }]);
-    publishToScreen(
-      views.map((v) => ({ round: "quiz", rank: null, prizeName: quizPrize, maskedName: v.maskedName, maskedEmail: v.maskedEmail }))
-    );
+    setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: winners.map(toWinnerView) }]);
+    publishToScreen(toPublishEntries(winners, "quiz", null, quizPrize));
   }
 
-  function runClosingDraw(rank: 3 | 2 | 1, prizeName: string, count: number) {
-    if (!parsed || !voteCol || !correctOption) return;
-    const winners = drawClosingWinners(parsed.participants, voteCol, correctOption, wonIds, count);
+  const closingWonCount = (rank: 3 | 2 | 1) =>
+    closingBatches.filter((b) => b.rank === rank).reduce((s, b) => s + b.winners.length, 0);
+  const closingRemaining = (rank: 3 | 2 | 1) => RANK_TARGET[rank] - closingWonCount(rank);
+  const closingRankUnlocked = (rank: 3 | 2 | 1) => {
+    if (rank === 3) return true;
+    if (rank === 2) return closingRemaining(3) === 0;
+    return closingRemaining(3) === 0 && closingRemaining(2) === 0;
+  };
+
+  function runClosingDraw(rank: 3 | 2 | 1, prizeName: string) {
+    if (!closingParsed || !voteCol || !correctOption) return;
+    const remaining = closingRemaining(rank);
+    if (remaining <= 0) return;
+    const count = revealOneByOne ? 1 : remaining;
+    const winners = drawClosingWinners(closingParsed.participants, voteCol, correctOption, wonIds, count);
+    if (winners.length === 0) return;
     setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    const views = winners.map(toView);
-    setClosingResults((prev) => [...prev, { rank, prizeName, winners: views }]);
-    publishToScreen(
-      views.map((v) => ({ round: "closing", rank, prizeName, maskedName: v.maskedName, maskedEmail: v.maskedEmail }))
-    );
+    setClosingBatches((prev) => [...prev, { rank, prizeName, winners: winners.map(toWinnerView) }]);
+    publishToScreen(toPublishEntries(winners, "closing", rank, prizeName));
   }
 
   async function resetAll() {
     if (!confirm("모든 추첨 결과를 초기화할까요? 스크린 표시도 함께 지워지고, 되돌릴 수 없어요.")) return;
     setWonIds(new Set());
     setQuizBatches([]);
-    setClosingResults([]);
+    setClosingBatches([]);
     try {
       await fetch("/api/admin/slido-winners", { method: "DELETE" });
     } catch {
-      // 무시 — 관제판 로컬 상태는 이미 초기화됨
+      // 무시
     }
   }
 
@@ -165,11 +239,6 @@ async function publishToScreen(
       // 무시
     }
   }
-
-  const closingDrawnRanks = new Set(closingResults.map((r) => r.rank));
-  const canDraw3 = !closingDrawnRanks.has(3);
-  const canDraw2 = closingDrawnRanks.has(3) && !closingDrawnRanks.has(2);
-  const canDraw1 = closingDrawnRanks.has(2) && !closingDrawnRanks.has(1);
 
   if (authed === null) {
     return <Shell><p className="text-[#5b5348]">확인 중...</p></Shell>;
@@ -203,7 +272,7 @@ async function publishToScreen(
           <div>
             <h1 className="text-2xl font-bold">🎉 럭키드로우 추첨 도구</h1>
             <p className="text-[#5b5348] text-sm mt-1">
-              슬라이도 &quot;참가자별 취합(Pivot All)&quot; 내보내기 파일을 업로드해서 추첨을 진행해요.
+              중간세션 퀴즈와 클로징 투표는 완전히 별도 단계예요 — 각각 그 시점 슬라이도 내보내기 파일을 따로 업로드해서 진행해요.
             </p>
           </div>
           <div className="shrink-0 flex flex-col items-end gap-2">
@@ -225,101 +294,53 @@ async function publishToScreen(
           </div>
         </div>
 
+        {/* ========== 1부: 중간세션 퀴즈 추첨 ========== */}
+        <SectionHeader step="1" title="중간세션 — 퀴즈 참여상 추첨" />
+
         <Card>
-          <h2 className="font-semibold mb-3">1. 슬라이도 결과 파일 업로드</h2>
-          <label className="flex flex-col items-center justify-center border-2 border-dashed border-[#cfc6b4] rounded-2xl py-10 cursor-pointer hover:border-[#198038] transition-colors bg-[#fdfbf6]">
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleFile(f);
-              }}
-            />
-            <span className="text-3xl mb-2">📂</span>
-            <span className="font-medium">엑셀 파일 선택 (.xlsx)</span>
-            {fileName && <span className="text-xs text-[#5b5348] mt-2">현재 파일: {fileName}</span>}
-          </label>
-          {parseError && <p className="text-sm text-red-600 mt-3">{parseError}</p>}
-          {parsed && (
-            <p className="text-sm text-[#198038] mt-3 font-medium">
-              ✅ 참가자 {parsed.participants.length}명 인식 완료
-            </p>
-          )}
+          <UploadBox
+            label="중간세션 슬라이도 내보내기 파일"
+            fileName={quizFileName}
+            onFile={handleQuizFile}
+            error={quizParseError}
+            participantCount={quizParsed?.participants.length}
+          />
         </Card>
 
-        {parsed && (
+        {quizParsed && (
           <Card>
-            <h2 className="font-semibold mb-3">2. 문항 설정</h2>
-            <p className="text-xs text-[#5b5348] mb-3">
-              중간세션 퀴즈로 쓸 문항(다중 선택 가능)과, 클로징 투표 문항 + 정답(당첨 기준) 보기를 지정해주세요.
-            </p>
+            <h2 className="font-semibold mb-3">퀴즈 문항 선택</h2>
+            <p className="text-xs text-[#5b5348] mb-3">기본으로 전체 문항이 체크돼 있어요. 퀴즈가 아닌 문항이 섞여 있으면 체크 해제해주세요.</p>
             <div className="space-y-2">
-              {parsed.questionColumns.map((col) => (
-                <div key={col} className="flex items-center gap-3 border border-[#eee5d5] rounded-xl px-3 py-2">
-                  <label className="flex items-center gap-2 text-sm flex-1">
-                    <input
-                      type="checkbox"
-                      checked={quizCols.has(col)}
-                      onChange={(e) => {
-                        const next = new Set(quizCols);
-                        if (e.target.checked) next.add(col);
-                        else next.delete(col);
-                        setQuizCols(next);
-                      }}
-                    />
-                    <span className="text-[#5b5348]">퀴즈 문항</span>
-                  </label>
-                  <label className="flex items-center gap-2 text-sm flex-1">
-                    <input
-                      type="radio"
-                      name="voteCol"
-                      checked={voteCol === col}
-                      onChange={() => {
-                        setVoteCol(col);
-                        setCorrectOption(null);
-                      }}
-                    />
-                    <span className="text-[#5b5348]">클로징 투표 문항</span>
-                  </label>
-                  <span className="text-sm truncate flex-[2]" title={col}>{col}</span>
-                </div>
+              {quizParsed.questionColumns.map((col) => (
+                <label key={col} className="flex items-center gap-2 border border-[#eee5d5] rounded-xl px-3 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={quizCols.has(col)}
+                    onChange={(e) => {
+                      const next = new Set(quizCols);
+                      if (e.target.checked) next.add(col);
+                      else next.delete(col);
+                      setQuizCols(next);
+                    }}
+                  />
+                  <span className="truncate" title={col}>{col}</span>
+                </label>
               ))}
             </div>
-
-            {voteCol && parsed && (
-              <div className="mt-4 flex items-end gap-2">
-                <label className="text-xs text-[#5b5348]">
-                  정답(당첨 기준) 보기
-                  <select
-                    className="block border border-[#e4ddd0] rounded-lg px-2 py-1.5 text-sm mt-1"
-                    value={correctOption ?? ""}
-                    onChange={(e) => setCorrectOption(e.target.value || null)}
-                  >
-                    <option value="">선택 안 함</option>
-                    {uniqueOptionValues(parsed.participants, voteCol).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {stats && (
-              <div className="mt-4 grid grid-cols-3 gap-3 text-center">
-                <Stat label="퀴즈 응답자" value={`${stats.quizRespondents}명`} />
-                <Stat label="가중 응모권" value={`${stats.totalTickets}장`} />
-                <Stat label="클로징 정답자" value={`${stats.closingRespondents}명`} />
+            {quizStats && (
+              <div className="mt-4 grid grid-cols-2 gap-3 text-center">
+                <Stat label="퀴즈 응답자" value={`${quizStats.respondents}명`} />
+                <Stat label="가중 응모권" value={`${quizStats.totalTickets}장`} />
               </div>
             )}
           </Card>
         )}
 
-        {parsed && (
+        {quizParsed && (
           <Card>
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">3. 중간세션 퀴즈 참여상 추첨</h2>
+              <h2 className="font-semibold">퀴즈 참여상 추첨</h2>
               <span className="text-xs text-[#5b5348]">이미 당첨된 사람은 자동 제외</span>
             </div>
             <div className="flex flex-wrap items-end gap-2">
@@ -363,34 +384,109 @@ async function publishToScreen(
             {quizCols.size === 0 && (
               <p className="text-xs text-amber-600 mt-2">위에서 퀴즈 문항을 1개 이상 체크해주세요.</p>
             )}
-
             {quizBatches.map((batch, i) => (
               <ResultBlock key={i} title={`${batch.prizeName} (${batch.winners.length}명)`} winners={batch.winners} />
             ))}
           </Card>
         )}
 
-        {parsed && voteCol && correctOption && (
+        {/* ========== 2부: 클로징 세션 투표 추첨 ========== */}
+        <SectionHeader step="2" title="클로징세션 — 투표 시상 추첨" note="행사 전체 종료 직전, 클로징 투표까지 끝난 뒤 진행" />
+
+        <Card>
+          <UploadBox
+            label="클로징세션 슬라이도 내보내기 파일 (행사 막바지에 새로 내보내기)"
+            fileName={closingFileName}
+            onFile={handleClosingFile}
+            error={closingParseError}
+            participantCount={closingParsed?.participants.length}
+          />
+        </Card>
+
+        {closingParsed && (
           <Card>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold">4. 클로징 시상 추첨 (3등 → 2등 → 1등 순서)</h2>
-            </div>
-            <div className="space-y-3">
-              <ClosingRow rank={3} label="3등 (2명)" defaultPrize="엔티 나물투데이 제철나물 정기구독권" count={2} enabled={canDraw3} onDraw={runClosingDraw} />
-              <ClosingRow rank={2} label="2등 (2명)" defaultPrize="스타스테크 라보페 불가사리 콜라겐 리커버리 세트" count={2} enabled={canDraw2} onDraw={runClosingDraw} />
-              <ClosingRow rank={1} label="1등 (1명)" defaultPrize="애플 에어팟 프로 3" count={1} enabled={canDraw1} onDraw={runClosingDraw} />
+            <h2 className="font-semibold mb-3">클로징 투표 문항 선택</h2>
+            <div className="space-y-2">
+              {closingParsed.questionColumns.map((col) => (
+                <label key={col} className="flex items-center gap-2 border border-[#eee5d5] rounded-xl px-3 py-2 text-sm">
+                  <input
+                    type="radio"
+                    name="voteCol"
+                    checked={voteCol === col}
+                    onChange={() => {
+                      setVoteCol(col);
+                      setCorrectOption(null);
+                    }}
+                  />
+                  <span className="truncate" title={col}>{col}</span>
+                </label>
+              ))}
             </div>
 
-            {closingResults
+            {voteCol && (
+              <div className="mt-4 flex items-end gap-2">
+                <label className="text-xs text-[#5b5348]">
+                  정답(당첨 기준) 보기
+                  <select
+                    className="block border border-[#e4ddd0] rounded-lg px-2 py-1.5 text-sm mt-1"
+                    value={correctOption ?? ""}
+                    onChange={(e) => setCorrectOption(e.target.value || null)}
+                  >
+                    <option value="">선택 안 함</option>
+                    {uniqueOptionValues(closingParsed.participants, voteCol).map((opt) => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
+            {closingStats && (
+              <div className="mt-4">
+                <Stat label="클로징 정답자" value={`${closingStats.respondents}명`} />
+              </div>
+            )}
+          </Card>
+        )}
+
+        {closingParsed && voteCol && correctOption && (
+          <Card>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold">클로징 시상 추첨 (3등 → 2등 → 1등 순서)</h2>
+              <label className="flex items-center gap-2 text-xs text-[#5b5348]">
+                <input
+                  type="checkbox"
+                  checked={revealOneByOne}
+                  onChange={(e) => setRevealOneByOne(e.target.checked)}
+                />
+                한 명씩 발표 (버튼 누를 때마다 1명씩 공개)
+              </label>
+            </div>
+            <div className="space-y-3">
+              {([3, 2, 1] as const).map((rank) => (
+                <ClosingRankRow
+                  key={rank}
+                  rank={rank}
+                  target={RANK_TARGET[rank]}
+                  wonCount={closingWonCount(rank)}
+                  unlocked={closingRankUnlocked(rank)}
+                  defaultPrize={RANK_DEFAULT_PRIZE[rank]}
+                  oneByOne={revealOneByOne}
+                  onDraw={runClosingDraw}
+                />
+              ))}
+            </div>
+
+            {closingBatches
               .slice()
-              .sort((a, b) => b.rank - a.rank)
-              .map((r, i) => (
-                <ResultBlock key={i} title={`${r.rank}등 · ${r.prizeName}`} winners={r.winners} highlight={r.rank === 1} />
+              .reverse()
+              .map((b, i) => (
+                <ResultBlock key={i} title={`${b.rank}등 · ${b.prizeName}`} winners={b.winners} highlight={b.rank === 1} />
               ))}
           </Card>
         )}
 
-        {(quizBatches.length > 0 || closingResults.length > 0) && (
+        {(quizBatches.length > 0 || closingBatches.length > 0) && (
           <div className="text-center">
             <button onClick={resetAll} className="text-xs text-red-600 underline">
               전체 추첨 결과 초기화
@@ -414,6 +510,57 @@ function Card({ children, className = "" }: { children: React.ReactNode; classNa
   return (
     <div className={`bg-white border border-[#eee5d5] rounded-2xl p-5 shadow-sm ${className}`}>
       {children}
+    </div>
+  );
+}
+
+function SectionHeader({ step, title, note }: { step: string; title: string; note?: string }) {
+  return (
+    <div className="flex items-center gap-3 pt-2">
+      <span className="flex items-center justify-center w-7 h-7 rounded-full bg-[#198038] text-white text-sm font-bold shrink-0">
+        {step}
+      </span>
+      <div>
+        <h2 className="text-lg font-bold">{title}</h2>
+        {note && <p className="text-xs text-[#5b5348]">{note}</p>}
+      </div>
+    </div>
+  );
+}
+
+function UploadBox({
+  label,
+  fileName,
+  onFile,
+  error,
+  participantCount,
+}: {
+  label: string;
+  fileName: string | null;
+  onFile: (f: File) => void;
+  error: string | null;
+  participantCount?: number;
+}) {
+  return (
+    <div>
+      <label className="flex flex-col items-center justify-center border-2 border-dashed border-[#cfc6b4] rounded-2xl py-8 cursor-pointer hover:border-[#198038] transition-colors bg-[#fdfbf6]">
+        <input
+          type="file"
+          accept=".xlsx,.xls"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+          }}
+        />
+        <span className="text-3xl mb-2">📂</span>
+        <span className="font-medium text-sm text-center px-4">{label}</span>
+        {fileName && <span className="text-xs text-[#5b5348] mt-2">현재 파일: {fileName}</span>}
+      </label>
+      {error && <p className="text-sm text-red-600 mt-3">{error}</p>}
+      {participantCount != null && (
+        <p className="text-sm text-[#198038] mt-3 font-medium">✅ 참가자 {participantCount}명 인식 완료</p>
+      )}
     </div>
   );
 }
@@ -452,33 +599,40 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ClosingRow({
+function ClosingRankRow({
   rank,
-  label,
+  target,
+  wonCount,
+  unlocked,
   defaultPrize,
-  count,
-  enabled,
+  oneByOne,
   onDraw,
 }: {
   rank: 3 | 2 | 1;
-  label: string;
+  target: number;
+  wonCount: number;
+  unlocked: boolean;
   defaultPrize: string;
-  count: number;
-  enabled: boolean;
-  onDraw: (rank: 3 | 2 | 1, prizeName: string, count: number) => void;
+  oneByOne: boolean;
+  onDraw: (rank: 3 | 2 | 1, prizeName: string) => void;
 }) {
   const [prize, setPrize] = useState(defaultPrize);
+  const done = wonCount >= target;
+  const enabled = unlocked && !done;
+
   return (
     <div className="flex items-center gap-2">
-      <span className="text-sm font-medium w-20">{label}</span>
+      <span className="text-sm font-medium w-20">
+        {rank}등 ({wonCount}/{target}명)
+      </span>
       <input
         className="border border-[#e4ddd0] rounded-lg px-3 py-1.5 text-sm flex-1 disabled:bg-[#f5f1e8] disabled:text-[#a89f8f]"
         value={prize}
         disabled={!enabled}
         onChange={(e) => setPrize(e.target.value)}
       />
-      <GreenButton onClick={() => onDraw(rank, prize, count)} disabled={!enabled}>
-        추첨
+      <GreenButton onClick={() => onDraw(rank, prize)} disabled={!enabled}>
+        {done ? "완료" : oneByOne ? "1명 추첨" : `${target - wonCount}명 추첨`}
       </GreenButton>
     </div>
   );
@@ -494,9 +648,7 @@ function ResultBlock({
   highlight?: boolean;
 }) {
   return (
-    <div
-      className={`mt-4 rounded-xl p-4 ${highlight ? "bg-[#198038] text-white" : "bg-[#f5f1e8]"}`}
-    >
+    <div className={`mt-4 rounded-xl p-4 ${highlight ? "bg-[#198038] text-white" : "bg-[#f5f1e8]"}`}>
       <p className={`text-sm font-semibold mb-2 ${highlight ? "text-white" : "text-[#2b2620]"}`}>
         🎊 {title}
       </p>

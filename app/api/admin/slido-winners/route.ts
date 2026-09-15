@@ -8,7 +8,32 @@ type Entry = {
   prizeName: string;
   maskedName: string;
   maskedEmail: string;
+  participantId?: string | null;
 };
+
+// 관제판 재접속/새로고침 시 중복당첨 방지용으로 이미 당첨된 참가자 ID 목록을 조회
+export async function GET(request: NextRequest) {
+  if (!isAdminRequest(request)) {
+    return NextResponse.json({ error: "관리자 인증이 필요합니다." }, { status: 401 });
+  }
+  try {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .from("slido_winners")
+      .select("participant_id")
+      .not("participant_id", "is", null);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    const participantIds = (data ?? [])
+      .map((r) => r.participant_id as string | null)
+      .filter((id): id is string => !!id);
+    return NextResponse.json({ participantIds });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "서버 설정 오류가 발생했습니다.";
+    return NextResponse.json({ error: message, participantIds: [] }, { status: 500 });
+  }
+}
 
 // 슬라이도 추첨 도구(/admin/draw)에서 뽑힌 당첨자를 스크린 표출용으로 저장
 export async function POST(request: NextRequest) {
@@ -30,6 +55,7 @@ export async function POST(request: NextRequest) {
       prize_name: e.prizeName,
       masked_name: e.maskedName,
       masked_email: e.maskedEmail,
+      participant_id: e.participantId ?? null,
     }));
     const { error } = await supabase.from("slido_winners").insert(rows);
     if (error) {

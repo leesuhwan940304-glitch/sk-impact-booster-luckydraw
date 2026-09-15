@@ -75,7 +75,7 @@ insert into quiz_questions (id, seq, question, options) values
   (3, 3, '멤버사가 가장 많이 선택했던 기업의 특징은 무엇일까요?', '["대표자 이력이 뛰어난 곳","투자를 많이 유치한 기업","멤버사의 니즈와 부합하는 제안을 한 기업","매출 성과가 좋은 기업"]')
 on conflict (id) do nothing;
 
--- 슬라이도 기반 추첨 결과 (참가자 원본 데이터는 저장하지 않고, 마스킹된 표시용 문자열만 저장)
+-- 슬라이도 기반 추첨 결과 (스크린 표출용 문자열 + 중복당첨 방지용 슬라이도 참가자ID)
 create table if not exists slido_winners (
   id uuid primary key default gen_random_uuid(),
   round text not null,           -- 'quiz' | 'closing'
@@ -83,8 +83,10 @@ create table if not exists slido_winners (
   prize_name text not null,
   masked_name text not null,
   masked_email text not null,
+  participant_id text,           -- 슬라이도 참가자 ID (중복당첨 방지용, 화면엔 노출 안 함)
   created_at timestamptz not null default now()
 );
+alter table slido_winners add column if not exists participant_id text;
 
 -- 클로징 투표 문항 (보기=발표기업 9개, 실제 확정본으로 UPDATE 필요)
 insert into vote_question (id, question, options) values
