@@ -11,7 +11,13 @@ export type SlidoParticipant = {
 export type ParsedSlido = {
   participants: SlidoParticipant[];
   questionColumns: string[]; // 참가자ID/이름/이메일/회사/총정답을 제외한 나머지 열(=문항)
+  questionTypes: Record<string, string | null>; // 문항명 -> 슬라이도 문항 유형 ("퀴즈(단일 정답)", "객관식(단일 선택)" 등)
 };
+
+// 슬라이도 "퀴즈" 타입 문항 유형 판별 (정답 맞히면 응답값 뒤에 "(correct)"가 붙는 타입)
+export function isQuizType(type: string | null | undefined): boolean {
+  return !!type && type.includes("퀴즈");
+}
 
 const FIXED_COLUMNS = new Set([
   "참가자 ID",
@@ -26,7 +32,7 @@ const FIXED_COLUMNS = new Set([
  * 1행 = 헤더, 이후 행 중 "참가자 ID"가 비어있는 행(문항 유형을 알려주는 서브헤더 등)은 건너뛴다.
  */
 export function parseSlidoPivotRows(rows: unknown[][]): ParsedSlido {
-  if (rows.length === 0) return { participants: [], questionColumns: [] };
+  if (rows.length === 0) return { participants: [], questionColumns: [], questionTypes: {} };
 
   const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
   const idIdx = header.indexOf("참가자 ID");
@@ -35,6 +41,18 @@ export function parseSlidoPivotRows(rows: unknown[][]): ParsedSlido {
   const companyIdx = header.indexOf("참가자 회사");
 
   const questionColumns = header.filter((h) => h && !FIXED_COLUMNS.has(h));
+
+  // 2행 = 문항 유형을 알려주는 서브헤더 (참가자 ID가 비어있는 행)
+  const questionTypes: Record<string, string | null> = {};
+  const subRow = rows[1] ?? [];
+  const subId = idIdx >= 0 ? subRow[idIdx] : undefined;
+  if (subId === undefined || subId === null || String(subId).trim() === "") {
+    header.forEach((colName, i) => {
+      if (!colName || FIXED_COLUMNS.has(colName)) return;
+      const v = subRow[i];
+      questionTypes[colName] = v == null ? null : String(v).trim();
+    });
+  }
 
   const participants: SlidoParticipant[] = [];
   for (let r = 1; r < rows.length; r++) {
@@ -58,7 +76,7 @@ export function parseSlidoPivotRows(rows: unknown[][]): ParsedSlido {
     });
   }
 
-  return { participants, questionColumns };
+  return { participants, questionColumns, questionTypes };
 }
 
 export function uniqueOptionValues(participants: SlidoParticipant[], column: string): string[] {

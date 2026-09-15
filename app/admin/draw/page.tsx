@@ -9,6 +9,7 @@ import {
   uniqueOptionValues,
   drawQuizWinners,
   drawClosingWinners,
+  isQuizType,
 } from "@/lib/slido-draw";
 import { maskEmail } from "@/lib/mask";
 
@@ -130,7 +131,9 @@ export default function DrawToolPage() {
       }
       setQuizParsed(result);
       setQuizFileName(file.name);
-      setQuizCols(new Set(result.questionColumns)); // 기본값: 전부 퀴즈 문항으로 체크
+      // 기본값: "퀴즈" 유형 문항만 체크 (유형 정보가 없으면 전체를 폴백으로 보여줌)
+      const quizTyped = result.questionColumns.filter((c) => isQuizType(result.questionTypes[c]));
+      setQuizCols(new Set(quizTyped.length > 0 ? quizTyped : result.questionColumns));
       setQuizBatches([]);
     } catch {
       setQuizParseError("파일을 읽는 중 오류가 발생했어요. 엑셀(.xlsx) 파일이 맞는지 확인해주세요.");
@@ -166,6 +169,19 @@ export default function DrawToolPage() {
       // 스크린 반영 실패해도 관제판 화면 결과는 이미 표시되므로 조용히 무시
     }
   }
+
+  // 중간세션엔 "퀴즈" 유형 문항만, 클로징세션엔 그 외(일반 투표) 유형 문항만 노출
+  const quizEligibleColumns = useMemo(() => {
+    if (!quizParsed) return [];
+    const quizTyped = quizParsed.questionColumns.filter((c) => isQuizType(quizParsed.questionTypes[c]));
+    return quizTyped.length > 0 ? quizTyped : quizParsed.questionColumns;
+  }, [quizParsed]);
+
+  const closingEligibleColumns = useMemo(() => {
+    if (!closingParsed) return [];
+    const nonQuiz = closingParsed.questionColumns.filter((c) => !isQuizType(closingParsed.questionTypes[c]));
+    return nonQuiz.length > 0 ? nonQuiz : closingParsed.questionColumns;
+  }, [closingParsed]);
 
   const quizStats = useMemo(() => {
     if (!quizParsed) return null;
@@ -310,9 +326,9 @@ export default function DrawToolPage() {
         {quizParsed && (
           <Card>
             <h2 className="font-semibold mb-3">퀴즈 문항 선택</h2>
-            <p className="text-xs text-[#5b5348] mb-3">기본으로 전체 문항이 체크돼 있어요. 퀴즈가 아닌 문항이 섞여 있으면 체크 해제해주세요.</p>
+            <p className="text-xs text-[#5b5348] mb-3">퀴즈 유형 문항만 자동으로 걸러서 보여줘요. 기본으로 전체 체크돼 있고, 필요하면 해제하세요.</p>
             <div className="space-y-2">
-              {quizParsed.questionColumns.map((col) => (
+              {quizEligibleColumns.map((col) => (
                 <label key={col} className="flex items-center gap-2 border border-[#eee5d5] rounded-xl px-3 py-2 text-sm">
                   <input
                     type="checkbox"
@@ -406,8 +422,9 @@ export default function DrawToolPage() {
         {closingParsed && (
           <Card>
             <h2 className="font-semibold mb-3">클로징 투표 문항 선택</h2>
+            <p className="text-xs text-[#5b5348] mb-3">중간세션 퀴즈 문항은 자동으로 제외했어요.</p>
             <div className="space-y-2">
-              {closingParsed.questionColumns.map((col) => (
+              {closingEligibleColumns.map((col) => (
                 <label key={col} className="flex items-center gap-2 border border-[#eee5d5] rounded-xl px-3 py-2 text-sm">
                   <input
                     type="radio"
