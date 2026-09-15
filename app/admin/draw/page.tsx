@@ -32,11 +32,11 @@ export default function DrawToolPage() {
   const [wonIds, setWonIds] = useState<Set<string>>(new Set());
   const [quizBatches, setQuizBatches] = useState<QuizBatch[]>([]);
   const [closingResults, setClosingResults] = useState<ClosingResult[]>([]);
-  const [quizPrize, setQuizPrize] = useState("퀴즈 참여상");
+  const QUIZ_PRIZE_PRESETS = ["LABO+VARDE 여권 케이스", "출장/여행용 필터샤워기 세트"];
+  const [quizPrize, setQuizPrize] = useState(QUIZ_PRIZE_PRESETS[0]);
   const [quizCount, setQuizCount] = useState(5);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 마운트 시 로그인 상태 최초 확인
     fetch("/api/admin/ping").then((res) => setAuthed(res.ok));
   }, []);
 
@@ -103,26 +103,53 @@ export default function DrawToolPage() {
     return { maskedName: maskSlidoName(p.name), maskedEmail: maskEmail(p.email) };
   }
 
+async function publishToScreen(
+    entries: { round: string; rank: number | null; prizeName: string; maskedName: string; maskedEmail: string }[]
+  ) {
+    try {
+      await fetch("/api/admin/slido-winners", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries }),
+      });
+    } catch {
+      // 스크린 반영 실패해도 관제판 화면 결과는 이미 표시되므로 조용히 무시
+    }
+  }
+
   function runQuizDraw() {
     if (!parsed) return;
     const winners = drawQuizWinners(parsed.participants, Array.from(quizCols), wonIds, quizCount);
     if (winners.length === 0) return;
     setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: winners.map(toView) }]);
+    const views = winners.map(toView);
+    setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: views }]);
+    publishToScreen(
+      views.map((v) => ({ round: "quiz", rank: null, prizeName: quizPrize, maskedName: v.maskedName, maskedEmail: v.maskedEmail }))
+    );
   }
 
   function runClosingDraw(rank: 3 | 2 | 1, prizeName: string, count: number) {
     if (!parsed || !voteCol || !correctOption) return;
     const winners = drawClosingWinners(parsed.participants, voteCol, correctOption, wonIds, count);
     setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    setClosingResults((prev) => [...prev, { rank, prizeName, winners: winners.map(toView) }]);
+    const views = winners.map(toView);
+    setClosingResults((prev) => [...prev, { rank, prizeName, winners: views }]);
+    publishToScreen(
+      views.map((v) => ({ round: "closing", rank, prizeName, maskedName: v.maskedName, maskedEmail: v.maskedEmail }))
+    );
   }
 
-  function resetAll() {
-    if (!confirm("모든 추첨 결과를 초기화할까요? 되돌릴 수 없어요.")) return;
+  async function resetAll() {
+    if (!confirm("모든 추첨 결과를 초기화할까요? 스크린 표시도 함께 지워지고, 되돌릴 수 없어요.")) return;
     setWonIds(new Set());
     setQuizBatches([]);
     setClosingResults([]);
+    try {
+      await fetch("/api/admin/slido-winners", { method: "DELETE" });
+    } catch {
+      // 무시 — 관제판 로컬 상태는 이미 초기화됨
+    }
   }
 
   const closingDrawnRanks = new Set(closingResults.map((r) => r.rank));
@@ -285,6 +312,21 @@ export default function DrawToolPage() {
                 🎲 추첨하기
               </GreenButton>
             </div>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {QUIZ_PRIZE_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => {
+                    setQuizPrize(preset);
+                    setQuizCount(5);
+                  }}
+                  className="text-xs border border-[#e4ddd0] rounded-full px-3 py-1 hover:bg-[#f5f1e8]"
+                >
+                  {preset} (5명)
+                </button>
+              ))}
+            </div>
             {quizCols.size === 0 && (
               <p className="text-xs text-amber-600 mt-2">위에서 퀴즈 문항을 1개 이상 체크해주세요.</p>
             )}
@@ -301,8 +343,8 @@ export default function DrawToolPage() {
               <h2 className="font-semibold">4. 클로징 시상 추첨 (3등 → 2등 → 1등 순서)</h2>
             </div>
             <div className="space-y-3">
-              <ClosingRow rank={3} label="3등 (2명)" defaultPrize="엔티 나물투데이 정기구독권" count={2} enabled={canDraw3} onDraw={runClosingDraw} />
-              <ClosingRow rank={2} label="2등 (2명)" defaultPrize="스타스테크 콜라겐 리커버리 세트" count={2} enabled={canDraw2} onDraw={runClosingDraw} />
+              <ClosingRow rank={3} label="3등 (2명)" defaultPrize="엔티 나물투데이 제철나물 정기구독권" count={2} enabled={canDraw3} onDraw={runClosingDraw} />
+              <ClosingRow rank={2} label="2등 (2명)" defaultPrize="스타스테크 라보페 불가사리 콜라겐 리커버리 세트" count={2} enabled={canDraw2} onDraw={runClosingDraw} />
               <ClosingRow rank={1} label="1등 (1명)" defaultPrize="애플 에어팟 프로 3" count={1} enabled={canDraw1} onDraw={runClosingDraw} />
             </div>
 
