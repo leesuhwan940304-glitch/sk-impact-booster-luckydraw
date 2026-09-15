@@ -152,6 +152,20 @@ async function publishToScreen(
     }
   }
 
+  async function resetScreenOnly() {
+    if (
+      !confirm(
+        "스크린에 표시된 당첨자 발표만 지울까요? (관제판의 추첨 기록·중복당첨 방지 대상자는 그대로 유지돼요)"
+      )
+    )
+      return;
+    try {
+      await fetch("/api/admin/slido-winners", { method: "DELETE" });
+    } catch {
+      // 무시
+    }
+  }
+
   const closingDrawnRanks = new Set(closingResults.map((r) => r.rank));
   const canDraw3 = !closingDrawnRanks.has(3);
   const canDraw2 = closingDrawnRanks.has(3) && !closingDrawnRanks.has(2);
@@ -192,14 +206,23 @@ async function publishToScreen(
               슬라이도 &quot;참가자별 취합(Pivot All)&quot; 내보내기 파일을 업로드해서 추첨을 진행해요.
             </p>
           </div>
-          <a
-            href="/screen"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 text-sm border border-[#198038] text-[#198038] rounded-full px-4 py-2 font-medium hover:bg-[#198038] hover:text-white transition-colors whitespace-nowrap"
-          >
-            🖥️ 무대 스크린 열기
-          </a>
+          <div className="shrink-0 flex flex-col items-end gap-2">
+            <a
+              href="/screen"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm border border-[#198038] text-[#198038] rounded-full px-4 py-2 font-medium hover:bg-[#198038] hover:text-white transition-colors whitespace-nowrap"
+            >
+              🖥️ 무대 스크린 열기
+            </a>
+            <button
+              type="button"
+              onClick={resetScreenOnly}
+              className="text-xs text-[#5b5348] underline whitespace-nowrap"
+            >
+              스크린 화면 초기화
+            </button>
+          </div>
         </div>
 
         <Card>
