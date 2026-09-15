@@ -1,0 +1,130 @@
+// 슬라이도 "Pivot All" 내보내기(엑셀) 기반 추첨 로직 — 전부 브라우저에서만 처리, 서버 전송 없음
+
+export type SlidoParticipant = {
+  id: string;
+  name: string;
+  email: string | null;
+  company: string | null;
+  answers: Record<string, string | null>; // 문항명(컬럼 헤더) -> 응답값
+};
+
+export type ParsedSlido = {
+  participants: SlidoParticipant[];
+  questionColumns: string[]; // 참가자ID/이름/이메일/회사/총정답을 제외한 나머지 열(=문항)
+};
+
+const FIXED_COLUMNS = new Set([
+  "참가자 ID",
+  "참가자 이름",
+  "참가자 이메일",
+  "참가자 회사",
+  "총 정답",
+]);
+
+/**
+ * SheetJS의 sheet_to_json(header: 1) 결과(2차원 배열)를 받아 파싱한다.
+ * 1행 = 헤더, 이후 행 중 "참가자 ID"가 비어있는 행(문항 유형을 알려주는 서브헤더 등)은 건너뛴다.
+ */
+export function parseSlidoPivotRows(rows: unknown[][]): ParsedSlido {
+  if (rows.length === 0) return { participants: [], questionColumns: [] };
+
+  const header = (rows[0] ?? []).map((h) => (h == null ? "" : String(h).trim()));
+  const idIdx = header.indexOf("참가자 ID");
+  const nameIdx = header.indexOf("참가자 이름");
+  const emailIdx = header.indexOf("참가자 이메일");
+  const companyIdx = header.indexOf("참가자 회사");
+
+  const questionColumns = header.filter((h) => h && !FIXED_COLUMNS.has(h));
+
+  const participants: SlidoParticipant[] = [];
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r] ?? [];
+    const id = idIdx >= 0 ? row[idIdx] : undefined;
+    if (id === undefined || id === null || String(id).trim() === "") continue; // 서브헤더/빈 행 skip
+
+    const answers: Record<string, string | null> = {};
+    header.forEach((colName, i) => {
+      if (!colName || FIXED_COLUMNS.has(colName)) return;
+      const v = row[i];
+      answers[colName] = v == null || String(v).trim() === "" ? null : String(v).trim();
+    });
+
+    participants.push({
+      id: String(id),
+      name: nameIdx >= 0 ? String(row[nameIdx] ?? "").trim() : "",
+      email: emailIdx >= 0 && row[emailIdx] ? String(row[emailIdx]).trim() : null,
+      company: companyIdx >= 0 && row[companyIdx] ? String(row[companyIdx]).trim() : null,
+      answers,
+    });
+  }
+
+  return { participants, questionColumns };
+}
+
+export function uniqueOptionValues(participants: SlidoParticipant[], column: string): string[] {
+  const set = new Set<string>();
+  for (const p of participants) {
+    const v = p.answers[column];
+    if (v) set.add(v);
+  }
+  return Array.from(set).sort();
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/**
+ * 중간세션 퀴즈 추첨.
+ * - 대상: 선택된 문항 컬럼 중 1개 이상 응답한 참가자 (정답 여부 무관)
+ * - 가중치: 응답한 문항 수만큼 응모권 부여 -> 다 풀수록 당첨확률 상승
+ */
+export function drawQuizWinners(
+  participants: SlidoParticipant[],
+  quizColumns: string[],
+  excludeIds: Set<string>,
+  count: number
+): SlidoParticipant[] {
+  const pool: string[] = [];
+  const byId = new Map(participants.map((p) => [p.id, p]));
+
+  for (const p of participants) {
+    if (excludeIds.has(p.id)) continue;
+    const weight = quizColumns.filter((col) => !!p.answers[col]).length;
+    for (let i = 0; i < weight; i++) pool.push(p.id);
+  }
+
+  const shuffled = shuffle(pool);
+  const picked: string[] = [];
+  const seen = new Set<string>();
+  for (const id of shuffled) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    picked.push(id);
+    if (picked.length >= count) break;
+  }
+
+  return picked.map((id) => byId.get(id)).filter((p): p is SlidoParticipant => !!p);
+}
+
+/**
+ * 클로징 투표 추첨.
+ * - 대상: voteColumn 응답이 correctOption과 일치하는 참가자만
+ */
+export function drawClosingWinners(
+  participants: SlidoParticipant[],
+  voteColumn: string,
+  correctOption: string,
+  excludeIds: Set<string>,
+  count: number
+): SlidoParticipant[] {
+  const candidates = participants.filter(
+    (p) => !excludeIds.has(p.id) && p.answers[voteColumn] === correctOption
+  );
+  return shuffle(candidates).slice(0, count);
+}

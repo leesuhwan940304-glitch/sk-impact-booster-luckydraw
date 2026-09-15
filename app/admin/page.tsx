@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import Link from "next/link";
 
 type Summary = {
   stage: string;
@@ -152,7 +153,12 @@ export default function AdminPage() {
 
   return (
     <main className="flex-1 bg-gray-50 p-6 max-w-3xl mx-auto w-full space-y-6">
-      <h1 className="text-xl font-bold">럭키드로우 관제판</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">럭키드로우 관제판</h1>
+        <Link href="/admin/draw" className="text-sm text-blue-600 underline">
+          🎲 슬라이도 결과 추첨 도구 →
+        </Link>
+      </div>
       {message && (
         <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3 text-sm">
           {message}
