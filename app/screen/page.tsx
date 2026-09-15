@@ -62,7 +62,6 @@ export default function ScreenPage() {
                 {latest.prizeName}
               </p>
               <p className="text-4xl font-extrabold mt-3">{latest.maskedName}</p>
-              <p className="text-gray-500 mt-1 font-mono">{latest.maskedEmail}</p>
             </div>
           )}
 
@@ -76,9 +75,7 @@ export default function ScreenPage() {
                       {w.round === "closing" && w.rank ? `${w.rank}등 · ` : ""}
                       {w.prizeName}
                     </span>
-                    <span className="font-mono">
-                      {w.maskedName} ({w.maskedEmail})
-                    </span>
+                    <span className="font-mono">{w.maskedName}</span>
                   </li>
                 ))}
               </ul>

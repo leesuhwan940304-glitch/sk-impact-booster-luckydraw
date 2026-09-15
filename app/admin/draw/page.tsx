@@ -656,10 +656,9 @@ function ResultBlock({
         {winners.map((w, i) => (
           <li
             key={i}
-            className={`text-sm flex justify-between font-mono ${highlight ? "text-white" : "text-[#2b2620]"}`}
+            className={`text-sm font-mono ${highlight ? "text-white" : "text-[#2b2620]"}`}
           >
-            <span>{w.maskedName}</span>
-            <span>{w.maskedEmail}</span>
+            {w.maskedName}
           </li>
         ))}
       </ul>
