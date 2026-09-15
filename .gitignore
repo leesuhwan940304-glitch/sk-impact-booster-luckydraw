@@ -39,4 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-테스트_슬라이도_참가자30명.xlsx
+# 테스트용 샘플 데이터 (레포에 포함할 필요 없음)
+테스트*.xlsx
+scratch_*
