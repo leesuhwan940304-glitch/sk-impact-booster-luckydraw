@@ -6,7 +6,7 @@ import {
   ParsedSlido,
   SlidoParticipant,
   parseSlidoPivotRows,
-  uniqueOptionValues,
+  voteTally,
   drawQuizWinners,
   drawClosingWinners,
   isQuizType,
@@ -27,9 +27,9 @@ type ClosingBatch = { rank: 3 | 2 | 1; prizeName: string; winners: WinnerView[] 
 
 const RANK_TARGET: Record<3 | 2 | 1, number> = { 3: 2, 2: 2, 1: 1 };
 const RANK_DEFAULT_PRIZE: Record<3 | 2 | 1, string> = {
-  3: "엔티 나물투데이 제철나물 정기구독권",
-  2: "스타스테크 라보페 불가사리 콜라겐 리커버리 세트",
-  1: "애플 에어팟 프로 3",
+  3: "엔티 나물투데이 정기구독권",
+  2: "스타스테크 라보페 불가사리 콜라겐 기초화장품 세트",
+  1: "에어팟 프로 3",
 };
 
 function toWinnerView(p: SlidoParticipant): WinnerView {
@@ -65,7 +65,7 @@ export default function DrawToolPage() {
   const [quizFileName, setQuizFileName] = useState<string | null>(null);
   const [quizParseError, setQuizParseError] = useState<string | null>(null);
   const [quizCols, setQuizCols] = useState<Set<string>>(new Set());
-  const QUIZ_PRIZE_PRESETS = ["LABO+VARDE 여권 케이스", "출장/여행용 필터샤워기 세트"];
+  const QUIZ_PRIZE_PRESETS = ["컨셔스웨어 바이오 레더 여권지갑", "이온플러스 여행용 샤워기 필터 세트"];
   const [quizPrize, setQuizPrize] = useState(QUIZ_PRIZE_PRESETS[0]);
   const [quizCount, setQuizCount] = useState(5);
   const [quizBatches, setQuizBatches] = useState<QuizBatch[]>([]);
@@ -75,7 +75,6 @@ export default function DrawToolPage() {
   const [closingFileName, setClosingFileName] = useState<string | null>(null);
   const [closingParseError, setClosingParseError] = useState<string | null>(null);
   const [voteCol, setVoteCol] = useState<string | null>(null);
-  const [correctOption, setCorrectOption] = useState<string | null>(null);
   const [closingBatches, setClosingBatches] = useState<ClosingBatch[]>([]);
   const [revealOneByOne, setRevealOneByOne] = useState(true);
 
@@ -150,8 +149,9 @@ export default function DrawToolPage() {
       }
       setClosingParsed(result);
       setClosingFileName(file.name);
-      setVoteCol(null);
-      setCorrectOption(null);
+      // 일반 투표(비-퀴즈) 유형 문항이 하나뿐이면 자동 선택
+      const nonQuiz = result.questionColumns.filter((c) => !isQuizType(result.questionTypes[c]));
+      setVoteCol(nonQuiz.length === 1 ? nonQuiz[0] : null);
       setClosingBatches([]);
     } catch {
       setClosingParseError("파일을 읽는 중 오류가 발생했어요. 엑셀(.xlsx) 파일이 맞는지 확인해주세요.");
@@ -194,11 +194,11 @@ export default function DrawToolPage() {
     return { respondents, totalTickets };
   }, [quizParsed, quizCols]);
 
-  const closingStats = useMemo(() => {
-    if (!closingParsed || !voteCol || !correctOption) return null;
-    const respondents = closingParsed.participants.filter((p) => p.answers[voteCol] === correctOption).length;
-    return { respondents };
-  }, [closingParsed, voteCol, correctOption]);
+  const closingTally = useMemo(() => {
+    if (!closingParsed || !voteCol) return [];
+    return voteTally(closingParsed.participants, voteCol);
+  }, [closingParsed, voteCol]);
+  const closingRespondentCount = closingTally.reduce((s, t) => s + t.count, 0);
 
   function runQuizDraw() {
     if (!quizParsed) return;
@@ -219,11 +219,11 @@ export default function DrawToolPage() {
   };
 
   function runClosingDraw(rank: 3 | 2 | 1, prizeName: string) {
-    if (!closingParsed || !voteCol || !correctOption) return;
+    if (!closingParsed || !voteCol) return;
     const remaining = closingRemaining(rank);
     if (remaining <= 0) return;
     const count = revealOneByOne ? 1 : remaining;
-    const winners = drawClosingWinners(closingParsed.participants, voteCol, correctOption, wonIds, count);
+    const winners = drawClosingWinners(closingParsed.participants, voteCol, wonIds, count);
     if (winners.length === 0) return;
     setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
     setClosingBatches((prev) => [...prev, { rank, prizeName, winners: winners.map(toWinnerView) }]);
@@ -430,43 +430,37 @@ export default function DrawToolPage() {
                     type="radio"
                     name="voteCol"
                     checked={voteCol === col}
-                    onChange={() => {
-                      setVoteCol(col);
-                      setCorrectOption(null);
-                    }}
+                    onChange={() => setVoteCol(col)}
                   />
                   <span className="truncate" title={col}>{col}</span>
                 </label>
               ))}
             </div>
 
-            {voteCol && (
-              <div className="mt-4 flex items-end gap-2">
-                <label className="text-xs text-[#5b5348]">
-                  정답(당첨 기준) 보기
-                  <select
-                    className="block border border-[#e4ddd0] rounded-lg px-2 py-1.5 text-sm mt-1"
-                    value={correctOption ?? ""}
-                    onChange={(e) => setCorrectOption(e.target.value || null)}
-                  >
-                    <option value="">선택 안 함</option>
-                    {uniqueOptionValues(closingParsed.participants, voteCol).map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            )}
-
-            {closingStats && (
+            {voteCol && closingTally.length > 0 && (
               <div className="mt-4">
-                <Stat label="클로징 정답자" value={`${closingStats.respondents}명`} />
+                <p className="text-xs text-[#5b5348] mb-2">
+                  득표 현황 (총 투표 {closingRespondentCount}명) — 🏆 베스트 임팩트상 발표용, 추첨과는 무관
+                </p>
+                <ul className="space-y-1">
+                  {closingTally.map((t, i) => (
+                    <li
+                      key={t.option}
+                      className={`flex justify-between text-sm border rounded-lg px-3 py-1.5 ${
+                        i === 0 ? "border-[#198038] bg-[#f0f7f1] font-semibold" : "border-[#eee5d5]"
+                      }`}
+                    >
+                      <span>{i === 0 ? "🏆 " : ""}{t.option}</span>
+                      <span className="font-mono">{t.count}표</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
           </Card>
         )}
 
-        {closingParsed && voteCol && correctOption && (
+        {closingParsed && voteCol && (
           <Card>
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold">클로징 시상 추첨 (3등 → 2등 → 1등 순서)</h2>

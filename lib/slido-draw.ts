@@ -88,6 +88,22 @@ export function uniqueOptionValues(participants: SlidoParticipant[], column: str
   return Array.from(set).sort();
 }
 
+// 보기별 득표수 집계, 득표 많은 순 정렬 (베스트 임팩트상 = 최다득표 기업 확인용)
+export function voteTally(
+  participants: SlidoParticipant[],
+  column: string
+): { option: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const p of participants) {
+    const v = p.answers[column];
+    if (!v) continue;
+    counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([option, count]) => ({ option, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -132,17 +148,16 @@ export function drawQuizWinners(
 
 /**
  * 클로징 투표 추첨.
- * - 대상: voteColumn 응답이 correctOption과 일치하는 참가자만
+ * - 대상: voteColumn에 응답(투표)한 참가자 전원 — 어느 기업에 투표했는지는 무관
+ *   ("베스트 임팩트상"은 최다득표 기업에게 별도로 수여되는 것이고, 경품 추첨은
+ *   투표 참여 여부만 본다 — 2026 SK임팩트부스터 데이 시나리오 v4 기준)
  */
 export function drawClosingWinners(
   participants: SlidoParticipant[],
   voteColumn: string,
-  correctOption: string,
   excludeIds: Set<string>,
   count: number
 ): SlidoParticipant[] {
-  const candidates = participants.filter(
-    (p) => !excludeIds.has(p.id) && p.answers[voteColumn] === correctOption
-  );
+  const candidates = participants.filter((p) => !excludeIds.has(p.id) && !!p.answers[voteColumn]);
   return shuffle(candidates).slice(0, count);
 }
