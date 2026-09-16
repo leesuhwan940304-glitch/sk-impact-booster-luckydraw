@@ -71,7 +71,9 @@ function ScreenContent() {
           maskedEmail: "",
           phoneLast4: "1234",
         }))
-      : winners.filter((w) => w.round === "closing" && w.rank === rank && w.maskedName !== "__ACTIVATE__");
+      : winners.filter(
+          (w) => w.round === "closing" && w.rank === rank && !!w.maskedName?.trim() && w.maskedName !== "__ACTIVATE__"
+        );
 
     return (
       <main className="flex-1 flex items-center justify-center bg-black overflow-hidden">
@@ -84,13 +86,14 @@ function ScreenContent() {
             className="absolute inset-0 w-full h-full object-contain"
           />
 
-          {/* "당첨자" 레이블 아래 빈 공간에 실제 당첨자 이름을 좌표로 겹쳐서 표시 */}
+          {/* "당첨자" 레이블 아래, 빨간 테두리 박스 안 남은 공간의 가로 가운데에 위쪽부터 정렬
+              (라벨과 안 겹치도록 top을 충분히 아래로 잡고, 세로는 위에서부터 쌓음) */}
           <div
             className="absolute flex flex-col items-center text-white"
-            style={{ left: "58.9%", top: "58%", width: "40%", transform: "translateX(-50%)", gap: "2.2%" }}
+            style={{ left: "36%", width: "46%", top: "55%", gap: "3%" }}
           >
             {group.map((w, i) => (
-              <p key={i} className="font-extrabold text-center" style={{ fontSize: "clamp(1.6rem, 4.6vh, 4.6vh)" }}>
+              <p key={i} className="font-extrabold text-center leading-tight whitespace-nowrap" style={{ fontSize: "clamp(1.6rem, 4.4vh, 4.4vh)" }}>
                 {w.maskedName}
                 {w.phoneLast4 ? (
                   <span className="text-orange-300 font-semibold"> ({w.phoneLast4})</span>
@@ -98,7 +101,11 @@ function ScreenContent() {
               </p>
             ))}
             {Array.from({ length: Math.max(0, cfg.count - group.length) }).map((_, i) => (
-              <p key={`pending-${i}`} className="text-neutral-500" style={{ fontSize: "clamp(1.3rem, 3.6vh, 3.6vh)" }}>
+              <p
+                key={`pending-${i}`}
+                className="text-neutral-500 leading-tight"
+                style={{ fontSize: "clamp(1.3rem, 3.6vh, 3.6vh)" }}
+              >
                 추첨 대기중…
               </p>
             ))}

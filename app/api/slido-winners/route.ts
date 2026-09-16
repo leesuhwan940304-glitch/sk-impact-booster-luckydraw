@@ -19,7 +19,9 @@ export async function GET() {
       round: w.round,
       rank: w.rank,
       prizeName: w.prize_name,
-      maskedName: w.masked_name,
+      // "추첨 시작"으로 화면만 켜둔 더미 항목은 이름을 빈 값으로 내려서
+      // 혹시 클라이언트가 구버전이어도 화면에 원문 토큰이 노출되지 않게 함
+      maskedName: w.masked_name === "__ACTIVATE__" ? "" : w.masked_name,
       maskedEmail: w.masked_email,
       createdAt: w.created_at,
     }));
