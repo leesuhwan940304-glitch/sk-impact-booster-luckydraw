@@ -33,6 +33,7 @@ export default function ScreenPage() {
 function ScreenContent() {
   const searchParams = useSearchParams();
   const previewRank = Number(searchParams.get("previewRank"));
+  const previewCountParam = searchParams.get("previewCount");
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [winners, setWinners] = useState<Winner[]>([]);
 
@@ -60,8 +61,9 @@ function ScreenContent() {
   if (isPreview || (latest && latest.round === "closing" && latest.rank && RANK_CONFIG[latest.rank])) {
     const rank = isPreview ? previewRank : (latest!.rank as number);
     const cfg = RANK_CONFIG[rank];
+    const previewCount = previewCountParam != null ? Math.max(0, Number(previewCountParam)) : cfg.count;
     const group = isPreview
-      ? Array.from({ length: cfg.count }, (_, i) => ({
+      ? Array.from({ length: previewCount }, (_, i) => ({
           round: "closing",
           rank,
           prizeName: cfg.name,
@@ -69,7 +71,7 @@ function ScreenContent() {
           maskedEmail: "",
           phoneLast4: "1234",
         }))
-      : winners.filter((w) => w.round === "closing" && w.rank === rank);
+      : winners.filter((w) => w.round === "closing" && w.rank === rank && w.maskedName !== "__ACTIVATE__");
 
     return (
       <main className="flex-1 flex items-center justify-center bg-black overflow-hidden">
@@ -85,10 +87,10 @@ function ScreenContent() {
           {/* "당첨자" 레이블 아래 빈 공간에 실제 당첨자 이름을 좌표로 겹쳐서 표시 */}
           <div
             className="absolute flex flex-col items-center text-white"
-            style={{ left: "58.9%", top: "53%", width: "38%", transform: "translateX(-50%)", gap: "1.8%" }}
+            style={{ left: "58.9%", top: "58%", width: "40%", transform: "translateX(-50%)", gap: "2.2%" }}
           >
             {group.map((w, i) => (
-              <p key={i} className="font-extrabold text-center" style={{ fontSize: "clamp(1.2rem, 3.4vh, 3.4vh)" }}>
+              <p key={i} className="font-extrabold text-center" style={{ fontSize: "clamp(1.6rem, 4.6vh, 4.6vh)" }}>
                 {w.maskedName}
                 {w.phoneLast4 ? (
                   <span className="text-orange-300 font-semibold"> ({w.phoneLast4})</span>
@@ -96,7 +98,7 @@ function ScreenContent() {
               </p>
             ))}
             {Array.from({ length: Math.max(0, cfg.count - group.length) }).map((_, i) => (
-              <p key={`pending-${i}`} className="text-neutral-500" style={{ fontSize: "clamp(1rem, 2.6vh, 2.6vh)" }}>
+              <p key={`pending-${i}`} className="text-neutral-500" style={{ fontSize: "clamp(1.3rem, 3.6vh, 3.6vh)" }}>
                 추첨 대기중…
               </p>
             ))}

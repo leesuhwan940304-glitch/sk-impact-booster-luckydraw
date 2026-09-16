@@ -20,8 +20,11 @@ type PublishEntry = {
   prizeName: string;
   maskedName: string;
   maskedEmail: string;
-  participantId: string;
+  participantId: string | null;
 };
+
+// 화면을 "N등 추첨 대기중" 상태로 먼저 전환만 시켜두는 더미 항목 (실제 당첨자 아님)
+const ACTIVATE_SENTINEL = "__ACTIVATE__";
 type QuizBatch = { prizeName: string; winners: WinnerView[] };
 type ClosingBatch = { rank: 3 | 2 | 1; prizeName: string; winners: WinnerView[] };
 
@@ -77,6 +80,8 @@ export default function DrawToolPage() {
   const [voteCol, setVoteCol] = useState<string | null>(null);
   const [closingBatches, setClosingBatches] = useState<ClosingBatch[]>([]);
   const [revealOneByOne, setRevealOneByOne] = useState(true);
+  // "추첨 시작" 버튼을 눌러 화면만 먼저 켜둔 등수 (실제 추첨 전 "추첨 대기중" 표시용)
+  const [startedRanks, setStartedRanks] = useState<Set<3 | 2 | 1>>(new Set());
 
   useEffect(() => {
     fetch("/api/admin/ping").then((res) => setAuthed(res.ok));
@@ -218,6 +223,20 @@ export default function DrawToolPage() {
     return closingRemaining(3) === 0 && closingRemaining(2) === 0;
   };
 
+  function startClosingRank(rank: 3 | 2 | 1, prizeName: string) {
+    setStartedRanks((prev) => new Set([...prev, rank]));
+    publishToScreen([
+      {
+        round: "closing",
+        rank,
+        prizeName,
+        maskedName: ACTIVATE_SENTINEL,
+        maskedEmail: "",
+        participantId: null,
+      },
+    ]);
+  }
+
   function runClosingDraw(rank: 3 | 2 | 1, prizeName: string) {
     if (!closingParsed || !voteCol) return;
     const remaining = closingRemaining(rank);
@@ -235,6 +254,7 @@ export default function DrawToolPage() {
     setWonIds(new Set());
     setQuizBatches([]);
     setClosingBatches([]);
+    setStartedRanks(new Set());
     try {
       await fetch("/api/admin/slido-winners", { method: "DELETE" });
     } catch {
@@ -483,6 +503,8 @@ export default function DrawToolPage() {
                   unlocked={closingRankUnlocked(rank)}
                   defaultPrize={RANK_DEFAULT_PRIZE[rank]}
                   oneByOne={revealOneByOne}
+                  started={startedRanks.has(rank)}
+                  onStart={startClosingRank}
                   onDraw={runClosingDraw}
                 />
               ))}
@@ -617,6 +639,8 @@ function ClosingRankRow({
   unlocked,
   defaultPrize,
   oneByOne,
+  started,
+  onStart,
   onDraw,
 }: {
   rank: 3 | 2 | 1;
@@ -625,11 +649,15 @@ function ClosingRankRow({
   unlocked: boolean;
   defaultPrize: string;
   oneByOne: boolean;
+  started: boolean;
+  onStart: (rank: 3 | 2 | 1, prizeName: string) => void;
   onDraw: (rank: 3 | 2 | 1, prizeName: string) => void;
 }) {
   const [prize, setPrize] = useState(defaultPrize);
   const done = wonCount >= target;
   const enabled = unlocked && !done;
+  // 한 명씩 발표 모드에서, 아직 "추첨 시작"을 안 눌렀고 아무도 안 뽑혔으면 화면 전환용 시작 버튼부터 노출
+  const needsStart = oneByOne && !started && wonCount === 0 && !done;
 
   return (
     <div className="flex items-center gap-2">
@@ -642,9 +670,15 @@ function ClosingRankRow({
         disabled={!enabled}
         onChange={(e) => setPrize(e.target.value)}
       />
-      <GreenButton onClick={() => onDraw(rank, prize)} disabled={!enabled}>
-        {done ? "완료" : oneByOne ? "1명 추첨" : `${target - wonCount}명 추첨`}
-      </GreenButton>
+      {needsStart ? (
+        <GreenButton onClick={() => onStart(rank, prize)} disabled={!enabled}>
+          🎬 추첨 시작
+        </GreenButton>
+      ) : (
+        <GreenButton onClick={() => onDraw(rank, prize)} disabled={!enabled}>
+          {done ? "완료" : oneByOne ? "1명 추첨" : `${target - wonCount}명 추첨`}
+        </GreenButton>
+      )}
     </div>
   );
 }
