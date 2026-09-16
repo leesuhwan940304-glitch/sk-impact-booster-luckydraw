@@ -90,7 +90,7 @@ function ScreenContent() {
               (라벨과 안 겹치도록 top을 충분히 아래로 잡고, 세로는 위에서부터 쌓음) */}
           <div
             className="absolute flex flex-col items-center text-white"
-            style={{ left: "36%", width: "46%", top: "55%", gap: "3%" }}
+            style={{ left: "37.5%", width: "49%", top: "52%", gap: "3%" }}
           >
             {group.map((w, i) => (
               <p key={i} className="font-extrabold text-center leading-tight whitespace-nowrap" style={{ fontSize: "clamp(1.6rem, 4.4vh, 4.4vh)" }}>
