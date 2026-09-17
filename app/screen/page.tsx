@@ -2,9 +2,6 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import QRCode from "qrcode";
-
-const SLIDO_JOIN_URL = "https://qr.sli.do/5G2ZkEcBRPFavWaMmUgqxM";
 
 // 클로징 등수별 완성 디자인 화면 (당첨자 영역만 비워서 받은 최종본, 1921x1081)
 const RANK_CONFIG: Record<number, { name: string; count: number; bg: string }> = {
@@ -12,6 +9,14 @@ const RANK_CONFIG: Record<number, { name: string; count: number; bg: string }> =
   2: { name: "스타스테크 라보페 기초화장품 세트", count: 2, bg: "/lucky/screen_rank2.png" },
   3: { name: "엔티 나물투데이 제철나물 정기구독권", count: 2, bg: "/lucky/screen_rank3.png" },
 };
+
+// 중간세션(Break Talk 퀴즈) 경품별 완성 디자인 화면.
+// admin/draw에서 경품명은 자유 입력 텍스트라 정확히 일치하지 않을 수 있어
+// 브랜드명 포함 여부로 매칭한다.
+const QUIZ_CONFIG: { match: string; name: string; count: number; bg: string }[] = [
+  { match: "컨셔스웨어", name: "컨셔스웨어 친환경 바이오 레더 여권 지갑", count: 5, bg: "/lucky/screen_quiz1.png" },
+  { match: "이온플러스", name: "이온플러스 여행용 샤워기 필터 셋트", count: 5, bg: "/lucky/screen_quiz2.png" },
+];
 
 type Winner = {
   round: string;
@@ -33,13 +38,9 @@ export default function ScreenPage() {
 function ScreenContent() {
   const searchParams = useSearchParams();
   const previewRank = Number(searchParams.get("previewRank"));
+  const previewQuiz = Number(searchParams.get("previewQuiz"));
   const previewCountParam = searchParams.get("previewCount");
-  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [winners, setWinners] = useState<Winner[]>([]);
-
-  useEffect(() => {
-    QRCode.toDataURL(SLIDO_JOIN_URL, { width: 480, margin: 1 }).then(setQrDataUrl);
-  }, []);
 
   useEffect(() => {
     const poll = () => {
@@ -53,27 +54,72 @@ function ScreenContent() {
     return () => clearInterval(id);
   }, []);
 
-  const [latest, ...rest] = winners;
+  const [latest] = winners;
 
-  // 클로징 등수 발표 중이면 경품별 전용 화면으로 전환
-  // (?previewRank=1|2|3 을 URL에 붙이면 실제 추첨 없이 디자인만 미리 확인 가능)
-  const isPreview = previewRank === 1 || previewRank === 2 || previewRank === 3;
-  if (isPreview || (latest && latest.round === "closing" && latest.rank && RANK_CONFIG[latest.rank])) {
-    const rank = isPreview ? previewRank : (latest!.rank as number);
-    const cfg = RANK_CONFIG[rank];
+  // 클로징 등수 / 중간세션 퀴즈 경품 발표 중이면 각각 전용 화면으로 전환
+  // (?previewRank=1|2|3 또는 ?previewQuiz=1|2 를 URL에 붙이면 실제 추첨 없이 디자인만 미리 확인 가능)
+  const isPreviewClosing = previewRank === 1 || previewRank === 2 || previewRank === 3;
+  const isPreviewQuiz = previewQuiz === 1 || previewQuiz === 2;
+
+  type RevealCfg = { name: string; count: number; bg: string };
+  let reveal: { cfg: RevealCfg; group: Winner[] } | null = null;
+
+  if (isPreviewClosing) {
+    const cfg = RANK_CONFIG[previewRank];
     const previewCount = previewCountParam != null ? Math.max(0, Number(previewCountParam)) : cfg.count;
-    const group = isPreview
-      ? Array.from({ length: previewCount }, (_, i) => ({
-          round: "closing",
-          rank,
-          prizeName: cfg.name,
-          maskedName: `테스트당첨자${cfg.count > 1 ? i + 1 : ""}`,
-          maskedEmail: "",
-          phoneLast4: "1234",
-        }))
-      : winners.filter(
-          (w) => w.round === "closing" && w.rank === rank && !!w.maskedName?.trim() && w.maskedName !== "__ACTIVATE__"
-        );
+    reveal = {
+      cfg,
+      group: Array.from({ length: previewCount }, (_, i) => ({
+        round: "closing",
+        rank: previewRank,
+        prizeName: cfg.name,
+        maskedName: `테스트당첨자${cfg.count > 1 ? i + 1 : ""}`,
+        maskedEmail: "",
+        phoneLast4: "1234",
+      })),
+    };
+  } else if (isPreviewQuiz) {
+    const cfg = QUIZ_CONFIG[previewQuiz - 1];
+    const previewCount = previewCountParam != null ? Math.max(0, Number(previewCountParam)) : cfg.count;
+    reveal = {
+      cfg,
+      group: Array.from({ length: previewCount }, (_, i) => ({
+        round: "quiz",
+        rank: null,
+        prizeName: cfg.name,
+        maskedName: `테스트당첨자${i + 1}`,
+        maskedEmail: "",
+        phoneLast4: "1234",
+      })),
+    };
+  } else if (latest && latest.round === "closing" && latest.rank && RANK_CONFIG[latest.rank]) {
+    const rank = latest.rank;
+    const cfg = RANK_CONFIG[rank];
+    reveal = {
+      cfg,
+      group: winners.filter(
+        (w) => w.round === "closing" && w.rank === rank && !!w.maskedName?.trim() && w.maskedName !== "__ACTIVATE__"
+      ),
+    };
+  } else if (latest && latest.round === "quiz") {
+    const qcfg = QUIZ_CONFIG.find((c) => latest.prizeName?.includes(c.match));
+    if (qcfg) {
+      reveal = {
+        cfg: qcfg,
+        group: winners.filter(
+          (w) =>
+            w.round === "quiz" &&
+            w.prizeName?.includes(qcfg.match) &&
+            !!w.maskedName?.trim() &&
+            w.maskedName !== "__ACTIVATE__"
+        ),
+      };
+    }
+  }
+
+  if (reveal) {
+    const { cfg, group } = reveal;
+    const manyWinners = cfg.count > 2;
 
     return (
       <main className="flex-1 flex items-center justify-center bg-black overflow-hidden">
@@ -87,13 +133,18 @@ function ScreenContent() {
           />
 
           {/* "당첨자" 레이블 아래, 빨간 테두리 박스 안 남은 공간의 가로 가운데에 위쪽부터 정렬
-              (라벨과 안 겹치도록 top을 충분히 아래로 잡고, 세로는 위에서부터 쌓음) */}
+              (라벨과 안 겹치도록 top을 충분히 아래로 잡고, 세로는 위에서부터 쌓음)
+              퀴즈(최대 5명)처럼 인원이 많으면 글자를 좀 더 작게 */}
           <div
             className="absolute flex flex-col items-center text-white"
-            style={{ left: "37.5%", width: "49%", top: "52%", gap: "3%" }}
+            style={{ left: "37.5%", width: "49%", top: manyWinners ? "50%" : "52%", gap: manyWinners ? "1.6%" : "3%" }}
           >
             {group.map((w, i) => (
-              <p key={i} className="font-extrabold text-center leading-tight whitespace-nowrap" style={{ fontSize: "clamp(1.6rem, 4.4vh, 4.4vh)" }}>
+              <p
+                key={i}
+                className="font-extrabold text-center leading-tight whitespace-nowrap"
+                style={{ fontSize: manyWinners ? "clamp(1.1rem, 3vh, 3vh)" : "clamp(1.6rem, 4.4vh, 4.4vh)" }}
+              >
                 {w.maskedName}
                 {w.phoneLast4 ? (
                   <span className="text-orange-300 font-semibold"> ({w.phoneLast4})</span>
@@ -104,7 +155,7 @@ function ScreenContent() {
               <p
                 key={`pending-${i}`}
                 className="text-neutral-500 leading-tight"
-                style={{ fontSize: "clamp(1.3rem, 3.6vh, 3.6vh)" }}
+                style={{ fontSize: manyWinners ? "clamp(1rem, 2.4vh, 2.4vh)" : "clamp(1.3rem, 3.6vh, 3.6vh)" }}
               >
                 추첨 대기중…
               </p>
@@ -115,53 +166,18 @@ function ScreenContent() {
     );
   }
 
+  // 대기화면 (아직 아무 발표도 시작되지 않았을 때 / 발표 사이 공백)
   return (
-    <main className="flex-1 bg-black text-white flex flex-col p-10 gap-8">
-      <header className="text-center">
-        <h1 className="text-3xl font-bold">2026 SK임팩트부스터 데이</h1>
-        <p className="text-gray-400 mt-1">럭키드로우 이벤트</p>
-      </header>
-
-      <div className="flex-1 grid grid-cols-2 gap-10 items-center">
-        <div className="flex flex-col items-center justify-center gap-4">
-          {qrDataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element -- 클라이언트에서 생성한 data URI라 next/image 최적화 대상이 아님
-            <img src={qrDataUrl} alt="슬라이도 참여 QR코드" className="bg-white p-4 rounded-2xl w-[360px] h-[360px]" />
-          )}
-          <p className="text-xl font-semibold">이벤트 참여 QR</p>
-        </div>
-
-        <div className="flex flex-col justify-center gap-6">
-          {!latest && <p className="text-2xl text-gray-300">곧 당첨자를 발표합니다 🎉</p>}
-
-          {latest && (
-            <div className="bg-white text-black rounded-2xl p-8 text-center shadow-lg">
-              <p className="text-sm text-gray-500 mb-2">🎊 방금 발표된 당첨자</p>
-              <p className="text-lg font-medium text-gray-700">
-                {latest.round === "closing" && latest.rank ? `${latest.rank}등 · ` : ""}
-                {latest.prizeName}
-              </p>
-              <p className="text-4xl font-extrabold mt-3">{latest.maskedName}</p>
-            </div>
-          )}
-
-          {rest.length > 0 && (
-            <div className="bg-white/10 rounded-xl p-5">
-              <p className="text-sm text-gray-400 mb-3">이전 당첨자</p>
-              <ul className="space-y-2 max-h-64 overflow-y-auto">
-                {rest.map((w, i) => (
-                  <li key={i} className="flex justify-between text-lg">
-                    <span>
-                      {w.round === "closing" && w.rank ? `${w.rank}등 · ` : ""}
-                      {w.prizeName}
-                    </span>
-                    <span className="font-mono">{w.maskedName}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
+    <main className="flex-1 flex items-center justify-center bg-black overflow-hidden">
+      <div className="relative w-full h-full max-w-[177.78vh] max-h-[56.25vw]" style={{ aspectRatio: "1672 / 941" }}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- 메인 타이틀 디자인 원본을 배경으로 그대로 표출 */}
+        <img src="/lucky/main_title.png" alt="2026 SK임팩트부스터 데이" className="absolute inset-0 w-full h-full object-contain" />
+        <p
+          className="absolute text-white font-semibold"
+          style={{ left: "6%", bottom: "16%", fontSize: "clamp(1.2rem, 3.2vh, 3.2vh)" }}
+        >
+          곧 당첨자를 발표합니다
+        </p>
       </div>
     </main>
   );
