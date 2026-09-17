@@ -27,6 +27,14 @@ type Winner = {
   phoneLast4?: string | null;
 };
 
+// 화면 전환 시 새 배경 이미지를 그제서야 네트워크로 받아오면 "이전 배경 + 새 텍스트"가
+// 잠깐 겹쳐 보일 수 있어, 페이지 진입 시 모든 배경을 미리 브라우저 캐시에 올려둔다.
+const ALL_BACKGROUNDS = [
+  "/lucky/main_title.png",
+  ...Object.values(RANK_CONFIG).map((c) => c.bg),
+  ...QUIZ_CONFIG.map((c) => c.bg),
+];
+
 export default function ScreenPage() {
   return (
     <Suspense fallback={<main className="flex-1 bg-black" />}>
@@ -41,6 +49,13 @@ function ScreenContent() {
   const previewQuiz = Number(searchParams.get("previewQuiz"));
   const previewCountParam = searchParams.get("previewCount");
   const [winners, setWinners] = useState<Winner[]>([]);
+
+  useEffect(() => {
+    ALL_BACKGROUNDS.forEach((src) => {
+      const img = new Image();
+      img.src = src;
+    });
+  }, []);
 
   useEffect(() => {
     const poll = () => {

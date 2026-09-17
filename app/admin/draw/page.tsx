@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import {
   ParsedSlido,
@@ -62,6 +62,10 @@ export default function DrawToolPage() {
 
   // 두 세션에 걸쳐 공유되는 "이미 당첨된 사람" 목록 (중복당첨 방지)
   const [wonIds, setWonIds] = useState<Set<string>>(new Set());
+  // 추첨 버튼 연타(더블클릭) 시 한 번에 두 배로 뽑히는 것을 막는 락.
+  // React state는 재렌더 전까지 disabled가 안 걸리므로 ref로 즉시 잠금.
+  const quizDrawingRef = useRef(false);
+  const closingDrawingRef = useRef(false);
 
   // 중간세션 (퀴즈) 상태
   const [quizParsed, setQuizParsed] = useState<ParsedSlido | null>(null);
@@ -206,12 +210,18 @@ export default function DrawToolPage() {
   const closingRespondentCount = closingTally.reduce((s, t) => s + t.count, 0);
 
   function runQuizDraw() {
-    if (!quizParsed) return;
-    const winners = drawQuizWinners(quizParsed.participants, Array.from(quizCols), wonIds, quizCount);
-    if (winners.length === 0) return;
-    setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: winners.map(toWinnerView) }]);
-    publishToScreen(toPublishEntries(winners, "quiz", null, quizPrize));
+    if (quizDrawingRef.current) return;
+    quizDrawingRef.current = true;
+    try {
+      if (!quizParsed) return;
+      const winners = drawQuizWinners(quizParsed.participants, Array.from(quizCols), wonIds, quizCount);
+      if (winners.length === 0) return;
+      setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
+      setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: winners.map(toWinnerView) }]);
+      publishToScreen(toPublishEntries(winners, "quiz", null, quizPrize));
+    } finally {
+      quizDrawingRef.current = false;
+    }
   }
 
   const closingWonCount = (rank: 3 | 2 | 1) =>
@@ -238,15 +248,21 @@ export default function DrawToolPage() {
   }
 
   function runClosingDraw(rank: 3 | 2 | 1, prizeName: string) {
-    if (!closingParsed || !voteCol) return;
-    const remaining = closingRemaining(rank);
-    if (remaining <= 0) return;
-    const count = revealOneByOne ? 1 : remaining;
-    const winners = drawClosingWinners(closingParsed.participants, voteCol, wonIds, count);
-    if (winners.length === 0) return;
-    setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
-    setClosingBatches((prev) => [...prev, { rank, prizeName, winners: winners.map(toWinnerView) }]);
-    publishToScreen(toPublishEntries(winners, "closing", rank, prizeName));
+    if (closingDrawingRef.current) return;
+    closingDrawingRef.current = true;
+    try {
+      if (!closingParsed || !voteCol) return;
+      const remaining = closingRemaining(rank);
+      if (remaining <= 0) return;
+      const count = revealOneByOne ? 1 : remaining;
+      const winners = drawClosingWinners(closingParsed.participants, voteCol, wonIds, count);
+      if (winners.length === 0) return;
+      setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
+      setClosingBatches((prev) => [...prev, { rank, prizeName, winners: winners.map(toWinnerView) }]);
+      publishToScreen(toPublishEntries(winners, "closing", rank, prizeName));
+    } finally {
+      closingDrawingRef.current = false;
+    }
   }
 
   async function resetAll() {
