@@ -10,6 +10,7 @@ import {
   drawQuizWinners,
   drawClosingWinners,
   isQuizType,
+  isCorrectAnswer,
 } from "@/lib/slido-draw";
 import { maskEmail } from "@/lib/mask";
 
@@ -75,6 +76,8 @@ export default function DrawToolPage() {
   const QUIZ_PRIZE_PRESETS = ["컨셔스웨어 바이오 레더 여권지갑", "이온플러스 여행용 샤워기 필터 세트"];
   const [quizPrize, setQuizPrize] = useState(QUIZ_PRIZE_PRESETS[0]);
   const [quizCount, setQuizCount] = useState(5);
+  // 2026-09-17 클라이언트 확정: 정답 2개 이상 맞힌 분만 추첨 대상
+  const [quizMinCorrect, setQuizMinCorrect] = useState(2);
   const [quizBatches, setQuizBatches] = useState<QuizBatch[]>([]);
 
   // 클로징세션 (투표) 상태 — 완전히 별도 업로드/설정
@@ -195,13 +198,13 @@ export default function DrawToolPage() {
   const quizStats = useMemo(() => {
     if (!quizParsed) return null;
     const cols = Array.from(quizCols);
-    const respondents = quizParsed.participants.filter((p) => cols.some((c) => !!p.answers[c])).length;
-    const totalTickets = quizParsed.participants.reduce(
-      (sum, p) => sum + cols.filter((c) => !!p.answers[c]).length,
-      0
+    const correctCounts = quizParsed.participants.map(
+      (p) => cols.filter((c) => isCorrectAnswer(p.answers[c])).length
     );
-    return { respondents, totalTickets };
-  }, [quizParsed, quizCols]);
+    const eligible = correctCounts.filter((n) => n >= quizMinCorrect).length;
+    const totalTickets = correctCounts.filter((n) => n >= quizMinCorrect).reduce((sum, n) => sum + n, 0);
+    return { eligible, totalTickets };
+  }, [quizParsed, quizCols, quizMinCorrect]);
 
   const closingTally = useMemo(() => {
     if (!closingParsed || !voteCol) return [];
@@ -214,7 +217,7 @@ export default function DrawToolPage() {
     quizDrawingRef.current = true;
     try {
       if (!quizParsed) return;
-      const winners = drawQuizWinners(quizParsed.participants, Array.from(quizCols), wonIds, quizCount);
+      const winners = drawQuizWinners(quizParsed.participants, Array.from(quizCols), wonIds, quizCount, quizMinCorrect);
       if (winners.length === 0) return;
       setWonIds((prev) => new Set([...prev, ...winners.map((w) => w.id)]));
       setQuizBatches((prev) => [...prev, { prizeName: quizPrize, winners: winners.map(toWinnerView) }]);
@@ -380,9 +383,21 @@ export default function DrawToolPage() {
                 </label>
               ))}
             </div>
+            <label className="flex items-center gap-2 text-xs text-[#5b5348] mt-3">
+              추첨 대상 조건: 정답
+              <input
+                type="number"
+                min={0}
+                max={quizCols.size || 3}
+                className="border border-[#e4ddd0] rounded-lg px-2 py-1 text-sm w-16 text-center"
+                value={quizMinCorrect}
+                onChange={(e) => setQuizMinCorrect(Number(e.target.value))}
+              />
+              개 이상 맞힌 분만
+            </label>
             {quizStats && (
               <div className="mt-4 grid grid-cols-2 gap-3 text-center">
-                <Stat label="퀴즈 응답자" value={`${quizStats.respondents}명`} />
+                <Stat label="추첨 대상자" value={`${quizStats.eligible}명`} />
                 <Stat label="가중 응모권" value={`${quizStats.totalTickets}장`} />
               </div>
             )}
@@ -393,7 +408,7 @@ export default function DrawToolPage() {
           <Card>
             <div className="flex items-center justify-between mb-3">
               <h2 className="font-semibold">퀴즈 참여상 추첨</h2>
-              <span className="text-xs text-[#5b5348]">이미 당첨된 사람은 자동 제외</span>
+              <span className="text-xs text-[#5b5348]">정답 {quizMinCorrect}개 이상 맞힌 분만 대상 · 이미 당첨된 사람은 자동 제외</span>
             </div>
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs text-[#5b5348]">
@@ -435,6 +450,11 @@ export default function DrawToolPage() {
             </div>
             {quizCols.size === 0 && (
               <p className="text-xs text-amber-600 mt-2">위에서 퀴즈 문항을 1개 이상 체크해주세요.</p>
+            )}
+            {quizCols.size > 0 && quizStats && quizStats.eligible === 0 && (
+              <p className="text-xs text-amber-600 mt-2">
+                정답 {quizMinCorrect}개 이상 맞힌 분이 없어요. 조건을 낮추거나 데이터를 확인해주세요.
+              </p>
             )}
             {quizBatches.map((batch, i) => (
               <ResultBlock key={i} title={`${batch.prizeName} (${batch.winners.length}명)`} winners={batch.winners} />

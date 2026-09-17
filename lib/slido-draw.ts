@@ -19,6 +19,11 @@ export function isQuizType(type: string | null | undefined): boolean {
   return !!type && type.includes("퀴즈");
 }
 
+// 퀴즈 문항 응답값이 정답인지 판별 ("... (correct)" 접미사로 표시됨)
+export function isCorrectAnswer(value: string | null | undefined): boolean {
+  return !!value && /\(correct\)\s*$/i.test(value.trim());
+}
+
 const FIXED_COLUMNS = new Set([
   "참가자 ID",
   "참가자 이름",
@@ -115,22 +120,25 @@ function shuffle<T>(arr: T[]): T[] {
 
 /**
  * 중간세션 퀴즈 추첨.
- * - 대상: 선택된 문항 컬럼 중 1개 이상 응답한 참가자 (정답 여부 무관)
- * - 가중치: 응답한 문항 수만큼 응모권 부여 -> 다 풀수록 당첨확률 상승
+ * - 대상: 선택된 문항 컬럼 중 정답을 minCorrect개 이상 맞힌 참가자만
+ *   (2026-09-17 클라이언트 확정: 정답 2개 이상 맞힌 분만 추첨 대상)
+ * - 가중치: 맞힌 정답 개수만큼 응모권 부여 -> 더 많이 맞힐수록 당첨확률 상승
  */
 export function drawQuizWinners(
   participants: SlidoParticipant[],
   quizColumns: string[],
   excludeIds: Set<string>,
-  count: number
+  count: number,
+  minCorrect: number = 2
 ): SlidoParticipant[] {
   const pool: string[] = [];
   const byId = new Map(participants.map((p) => [p.id, p]));
 
   for (const p of participants) {
     if (excludeIds.has(p.id)) continue;
-    const weight = quizColumns.filter((col) => !!p.answers[col]).length;
-    for (let i = 0; i < weight; i++) pool.push(p.id);
+    const correctCount = quizColumns.filter((col) => isCorrectAnswer(p.answers[col])).length;
+    if (correctCount < minCorrect) continue;
+    for (let i = 0; i < correctCount; i++) pool.push(p.id);
   }
 
   const shuffled = shuffle(pool);
