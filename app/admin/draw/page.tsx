@@ -203,7 +203,12 @@ export default function DrawToolPage() {
     );
     const eligible = correctCounts.filter((n) => n >= quizMinCorrect).length;
     const totalTickets = correctCounts.filter((n) => n >= quizMinCorrect).reduce((sum, n) => sum + n, 0);
-    return { eligible, totalTickets };
+    const respondents = quizParsed.participants.filter((p) => cols.some((c) => !!p.answers[c])).length;
+    // 응답자는 있는데 "정답" 표시가 하나도 안 잡히면, 정답 기준이 0명인 게 아니라
+    // 슬라이도 파일의 "(correct)" 표기 형식 자체가 바뀌었을 가능성이 높다는 신호
+    const anyCorrectMarkFound = correctCounts.some((n) => n > 0);
+    const formatLooksOff = respondents > 0 && !anyCorrectMarkFound;
+    return { eligible, totalTickets, respondents, formatLooksOff };
   }, [quizParsed, quizCols, quizMinCorrect]);
 
   const closingTally = useMemo(() => {
@@ -401,6 +406,14 @@ export default function DrawToolPage() {
                 <Stat label="가중 응모권" value={`${quizStats.totalTickets}장`} />
               </div>
             )}
+            {quizStats?.formatLooksOff && (
+              <p className="text-xs text-red-600 mt-3 font-medium">
+                ⚠️ 응답자는 {quizStats.respondents}명인데 &ldquo;정답&rdquo; 표시를 하나도 못 찾았어요. 정답 기준을
+                만족하는 사람이 진짜 없는 게 아니라, 슬라이도 파일의 정답 표기 형식이 예전과 달라졌을 가능성이
+                높습니다. 엑셀 파일을 열어 정답 문항 응답값 끝에 &ldquo;(correct)&rdquo;가 그대로 붙어있는지 직접
+                확인해주세요.
+              </p>
+            )}
           </Card>
         )}
 
@@ -451,7 +464,7 @@ export default function DrawToolPage() {
             {quizCols.size === 0 && (
               <p className="text-xs text-amber-600 mt-2">위에서 퀴즈 문항을 1개 이상 체크해주세요.</p>
             )}
-            {quizCols.size > 0 && quizStats && quizStats.eligible === 0 && (
+            {quizCols.size > 0 && quizStats && quizStats.eligible === 0 && !quizStats.formatLooksOff && (
               <p className="text-xs text-amber-600 mt-2">
                 정답 {quizMinCorrect}개 이상 맞힌 분이 없어요. 조건을 낮추거나 데이터를 확인해주세요.
               </p>
